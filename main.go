@@ -22,32 +22,36 @@ func (v Vertex) String() string {
 	return fmt.Sprintf("\nlat:\t%f\nlong:\t%f\n\n", v.lat, v.long)
 }
 
+var BitMap = make(map[int]uint64)
+var SetMap = make(map[uint64][]int)
 var VertexMap = make(map[int]*Vertex)
+var SolutionsMap = make(map[uint64][]float64)
 
 func main() {
 
 	readFile(os.Args[1])
 
-	// fmt.Println(VertexMap)
-
-	sets := make([][]int, 0)
-
-	for i := range sets {
-		sets[i] = make([]int, 1)
+	// Quick look ups for binary representation of number
+	for i := 1; i <= n; i++ {
+		BitMap[i] = uint64(math.Pow(2, float64(i)))
 	}
 
-	setsBySize := make([][]int, n)
-	setsCount := 0
+	// Identify which sets are of which size
+	// which controls TSP subproblems
+	setsBySize := make([][]uint64, n)
 
 	for i := range setsBySize {
-		setsBySize[i] = make([]int, 0)
+		setsBySize[i] = make([]uint64, 0)
 	}
 
+	// Used to create combinations from 2 to n
 	combination := []interface{}{}
 
 	for i := 2; i <= n; i++ {
 		combination = append(combination, i)
 	}
+
+	var SetMapKeyList []uint64
 
 	for i := 1; i < n; i++ {
 
@@ -55,149 +59,93 @@ func main() {
 
 			b := make([]int, len(v))
 
+			// SetMapKey uses binary numbers to represent elements in set
+			// this offers efficient lookups of S - {j}
+			var SetMapKey uint64
 			for i := range v {
+				SetMapKey += BitMap[v[i].(int)]
 				b[i] = v[i].(int)
 			}
 
-			sets = append(sets, b)
-			setsBySize[i] = append(setsBySize[i], setsCount)
-			setsCount++
+			w, ok := SetMap[SetMapKey]
+
+			if ok {
+				log.Fatalf("YOU ARE BAD AT MATH %v", w)
+			} else {
+				SetMap[SetMapKey] = b
+				SolutionsMap[SetMapKey] = make([]float64, n+1)
+				setsBySize[i] = append(setsBySize[i], SetMapKey)
+				SetMapKeyList = append(SetMapKeyList, SetMapKey)
+			}
 		}
 	}
 
-	//	fmt.Println(sets)
-	//	fmt.Println(setsBySize)
-
+	// Quick lookups for distances between vertices
 	distanceMatrix := make([][]float64, n+1)
 
-	// Quick lookups for distances between vertices
 	for i := range distanceMatrix {
 		distanceMatrix[i] = make([]float64, n+1)
 	}
 
 	// Fill in distanceMatrix with all pairs of vertices' distance
-	for _, x := range setsBySize[2] {
-
-		// fmt.Printf("\nsets[%d]:\t%v", x, sets[x])
-
-		// fmt.Printf("\na:%v\t\nb:%v\t", sets[x][0], sets[x][1])
-
-		thisDistance := distance(VertexMap[sets[x][0]], VertexMap[sets[x][1]])
-		distanceMatrix[sets[x][0]][sets[x][1]] = thisDistance
-		distanceMatrix[sets[x][1]][sets[x][0]] = thisDistance
-
-		// for _, y := range sets[x] {
-
-		// 	fmt.Println("y", y)
-		// 	// thisDistance := distance(VertexMap[y[0]], VertexMap[y[1]])
-		// 	// distanceMatrix[y[0]][y[1]] = thisDistance
-		// 	// distanceMatrix[y[1]][y[0]] = thisDistance
-		// }
-		// fmt.Println(x)
-
-	}
-
 	for i := 2; i <= n; i++ {
 		thisDistance := distance(VertexMap[1], VertexMap[i])
 		distanceMatrix[1][i] = thisDistance
 		distanceMatrix[i][1] = thisDistance
 	}
 
-	// fmt.Println(distanceMatrix)
+	for _, x := range setsBySize[2] {
+		thisDistance := distance(VertexMap[SetMap[x][0]], VertexMap[SetMap[x][1]])
+		distanceMatrix[SetMap[x][0]][SetMap[x][1]] = thisDistance
+		distanceMatrix[SetMap[x][1]][SetMap[x][0]] = thisDistance
+	}
 
-	// [number of sets][solution for adding j to S-{j}]
-	solutionsMatrix := make([][]float64, len(sets))
-
-	// Quick lookups for distances between vertices
-	for i := range solutionsMatrix {
-		solutionsMatrix[i] = make([]float64, n+1)
-		solutionsMatrix[i][0] = math.Inf(1)
-		solutionsMatrix[i][1] = math.Inf(1)
+	// Fill in SolutionsMap for 0 and 1 to prevent nonsense minTour
+	for i := range SolutionsMap {
+		SolutionsMap[i][0] = math.Inf(1)
+		SolutionsMap[i][1] = math.Inf(1)
 	}
 
 	// fmt.Println(solutionsMatrix)
 	// Fill in solution for 1 to j
 	for _, x := range setsBySize[1] {
-		solutionsMatrix[x][sets[x][0]] = distanceMatrix[1][sets[x][0]]
+		SolutionsMap[x][SetMap[x][0]] = distanceMatrix[1][SetMap[x][0]]
 	}
 
-	numOfSets := len(sets)
+	numOfSets := len(SetMap)
 	//TSP
 	for m := 2; m < n; m++ {
+
+		// x is the SetMapKey
 		for _, x := range setsBySize[m] {
-			// x is the setID
-			fmt.Println(numOfSets - x)
-			for _, j := range sets[x] {
-				// j = the VertexMap ID
-				//				fmt.Println("sets[x]", sets[x])
-				//				fmt.Println("j", j)
 
-				// Remove j from sets[x]
+			// j = the VertexMap ID
+			for _, j := range SetMap[x] {
 
-				setMinusJ := removeElementFromSlice(sets[x], j)
-				//				fmt.Println("setMinusJ", setMinusJ)
+				// y is the SetMapKey of S - {j}
+				y := x - BitMap[j]
 
-				// Search setsBySize[m-1] for the sets ID that matches sets[x]-j;
-				//		call it sets[y]
-
-				for _, y := range setsBySize[m-1] {
-					// y is the setID
-					if testEq(setMinusJ, sets[y]) {
-
-						// Find minCost ranging over sets[y] to j
-						minCost := math.Inf(1)
-						thisCost := math.Inf(1)
-
-						for _, k := range sets[y] {
-							// k is the VertexMap ID
-							thisCost = solutionsMatrix[y][k] + distanceMatrix[k][j]
-
-							minCost = math.Min(minCost, thisCost)
-						}
-
-						// set solutionsMatrix[x][j] = minCost
-						solutionsMatrix[x][j] = minCost
-					}
+				// Find minCost ranging over sets[y] to j
+				minCost := math.Inf(1)
+				thisCost := math.Inf(1)
+				for _, k := range SetMap[y] {
+					// k is the VertexMap ID
+					thisCost = SolutionsMap[y][k] + distanceMatrix[k][j]
+					minCost = math.Min(minCost, thisCost)
 				}
+				// set solutionsMatrix[x][j] = minCost
+				SolutionsMap[x][j] = minCost
 			}
 		}
 	}
 
-	// // Print solutionsMatrix
-	// for i := range solutionsMatrix {
-	// 	fmt.Println(solutionsMatrix[i])
-	// }
-
 	minTour := math.Inf(1)
 
-	for i, x := range solutionsMatrix[len(sets)-1] {
+	for i, x := range SolutionsMap[SetMapKeyList[len(SetMapKeyList)-1]] {
 		minTour = math.Min(minTour, distanceMatrix[1][i]+x)
 	}
 
 	fmt.Println(int(minTour))
-}
-
-func testEq(a, b []int) bool {
-	for i, v := range a {
-		if v != b[i] {
-			return false
-		}
-	}
-
-	return true
-}
-func removeElementFromSlice(s []int, v int) []int {
-
-	for p, x := range s {
-		if x == v {
-			r := append([]int{}, s[:p]...)
-			r = append(r, s[p+1:]...)
-			return r
-		}
-	}
-	log.Fatalf("Cannot remove %d from %v", v, s)
-
-	return s
 }
 
 func distance(a, b *Vertex) float64 {
@@ -245,17 +193,3 @@ func readFile(filename string) {
 		log.Fatal(err)
 	}
 }
-
-// func Factorial(n int) (result int) {
-// 	if n > 0 {
-// 		result = n * Factorial(n-1)
-// 		return result
-// 	}
-// 	return 1
-// }
-
-// useThis := &c
-// fmt.Println("Trying to add", useThis)
-// fmt.Println("currently", i+1, setsBySize[i+1])
-// setsBySize[i+1] = append(setsBySize[i+1], *useThis)
-// fmt.Println("after assignment", i+1, setsBySize[i+1])
